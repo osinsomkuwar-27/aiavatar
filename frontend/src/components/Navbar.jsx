@@ -23,7 +23,7 @@ export default function Navbar() {
               <path d="M19 3.5v1M19 8.5v1M16.5 6h-1M21.5 6h1M17.3 4.3l-.7-.7M21.4 8.4l-.7-.7M21.4 3.6l-.7.7M17.3 7.7l-.7.7" stroke="#4f8eff" strokeWidth="1" strokeLinecap="round" />
             </svg>
           </div>
-          <span style={styles.logoText}>AvatarAI</span>
+          <span style={styles.logoText}>Vaktar AI</span>
         </NavLink>
 
         {/* Desktop Links */}

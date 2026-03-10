@@ -1,11 +1,6 @@
 import { useState, useEffect } from 'react'
 import { useNavigate } from 'react-router-dom'
 
-/* ─────────────────────────────────────────────
-   Real portrait photos via public APIs
-   Using randomuser.me which returns real
-   portrait photos — most realistic possible
-───────────────────────────────────────────── */
 
 const AVATARS = [
   // Lane 1 — Professional / Creator types
@@ -324,7 +319,7 @@ export default function LoginPage({ addToast }) {
                 <path d="M19 3v1M19 7v1M17 5h-1M21 5h1" stroke="#4f8eff" strokeWidth="1.1" strokeLinecap="round"/>
               </svg>
             </div>
-            <span style={s.logoText}>AvatarAI</span>
+            <span style={s.logoText}>Vaktar AI</span>
           </div>
 
           {/* Status badge */}
