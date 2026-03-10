@@ -41,9 +41,10 @@ async def generate_video(req: PipelineRequest):
         print(f"[STEP 1] Tone: {tone}")
 
         # Step 2 — Bhargavi: Translate if not English
-        if req.target_language != "en":
-            print(f"[STEP 2] Translating to {req.target_language}...")
-            ssml = translate_with_emotion(ssml, req.target_language)
+        target_lang = req.target_language or "en"
+        if target_lang != "en":
+            print(f"[STEP 2] Translating to {target_lang}...")
+            ssml = translate_with_emotion(ssml, target_lang)
             print(f"[STEP 2] Translated!")
         else:
             print("[STEP 2] No translation needed.")
