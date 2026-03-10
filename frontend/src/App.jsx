@@ -5,7 +5,7 @@ import Toast from './components/Toast'
 import CreatePage   from './pages/CreatePage'
 import FeaturesPage from './pages/FeaturesPage'
 import HistoryPage  from './pages/HistoryPage'
-import LoginPage    from './components/LoginPage'
+import LoginPage    from './pages/LoginPage'
 
 export default function App() {
   const [toasts, setToasts] = useState([])
