@@ -1,60 +1,129 @@
-from moviepy.editor import VideoFileClip, ImageClip, CompositeVideoClip
+from moviepy.editor import VideoFileClip, CompositeVideoClip, ImageClip
 from PIL import Image, ImageDraw, ImageFont
 import numpy as np
+import whisper
 import re
 
 def extract_plain_text(ssml_text):
     plain_text = re.sub(r'<[^>]+>', '', ssml_text).strip()
     return plain_text
 
-def make_caption_image(text, video_width):
-    # Create a TRANSPARENT background — not black/blue
-    img = Image.new('RGBA', (video_width, 80), (0, 0, 0, 0))
-    draw = ImageDraw.Draw(img)
+def get_timed_segments(video_path):
+    print("Loading Whisper model...")
+    model = whisper.load_model("base")
+    print("Transcribing audio to get timestamps...")
+    result = model.transcribe(video_path)
+    segments = []
+    for seg in result["segments"]:
+        segments.append({
+            "start": seg["start"],
+            "end": seg["end"],
+            "text": seg["text"].strip()
+        })
+        print(f"{seg['start']:.1f}s -> {seg['end']:.1f}s : {seg['text']}")
+    return segments
 
+def make_caption_image(text, video_width):
     try:
-        font = ImageFont.truetype(r"C:\Windows\Fonts\Nirmala.ttc", 36)
-        print("Using Nirmala font for Hindi")
-    except Exception as e:
-        print(f"Font error: {e}")
+        font = ImageFont.truetype(r"C:\Windows\Fonts\Nirmala.ttc", 16)
+    except:
         font = ImageFont.load_default()
 
-    # Draw dark shadow behind text so it's readable on any video
-    draw.text((11, 11), text, font=font, fill=(0, 0, 0, 180))
-    # Draw white text on top
-    draw.text((10, 10), text, font=font, fill=(255, 255, 255, 255))
+    words = text.split()
+    lines = []
+    current_line = ""
+
+    for word in words:
+        test_line = current_line + " " + word if current_line else word
+        dummy_img = Image.new('RGBA', (1, 1))
+        dummy_draw = ImageDraw.Draw(dummy_img)
+        bbox = dummy_draw.textbbox((0, 0), test_line, font=font)
+        line_width = bbox[2] - bbox[0]
+
+        if line_width < video_width - 80:
+            current_line = test_line
+        else:
+            lines.append(current_line)
+            current_line = word
+
+    if current_line:
+        lines.append(current_line)
+
+    line_height = 22
+    img_height = line_height * len(lines) + 10
+    img = Image.new('RGBA', (video_width, img_height), (0, 0, 0, 0))
+    draw = ImageDraw.Draw(img)
+
+    for i, line in enumerate(lines):
+        bbox = draw.textbbox((0, 0), line, font=font)
+        text_width = bbox[2] - bbox[0]
+        x = (video_width - text_width) // 2
+        y = i * line_height + 5
+        draw.text((x + 1, y + 1), line, font=font, fill=(0, 0, 0, 180))
+        draw.text((x, y), line, font=font, fill=(255, 255, 255, 255))
 
     return np.array(img)
 
-def add_captions_to_video(video_path: str, translated_ssml: str, output_path: str = None):
+def add_captions_to_video(video_path: str, translated_ssml: str = None, output_path: str = None):
     if output_path is None:
         output_path = video_path.replace('.mp4', '_captioned.mp4')
 
-    # Extract plain text from SSML
-    caption_text = extract_plain_text(translated_ssml)
-    print(f"Caption text: {caption_text}")
-
-    # Load the original video
-    print(f"Loading video from: {video_path}")
+    print(f"Loading video: {video_path}")
     video = VideoFileClip(video_path)
 
-    # Create transparent caption image
-    caption_array = make_caption_image(caption_text, video.w)
+    segments = get_timed_segments(video_path)
 
-    # Turn into moviepy clip
-    caption_clip = (ImageClip(caption_array)
-                   .set_duration(video.duration)
-                   .set_position(('center', 'bottom')))
+    caption_clips = []
 
-    # Overlay caption ON TOP of original video
-    final_video = CompositeVideoClip(
-    [video, caption_clip],
-    size=video.size
-    )
+    for seg in segments:
+        text = seg["text"]
+        start = seg["start"]
+        end = seg["end"]
+        duration = end - start
+
+        if not text.strip():
+            continue
+
+        # Split text into chunks that fit in 2 lines
+        words = text.split()
+        chunks = []
+        current_chunk = ""
+
+        try:
+            font = ImageFont.truetype(r"C:\Windows\Fonts\Nirmala.ttc", 16)
+        except:
+            font = ImageFont.load_default()
+
+        for word in words:
+            test = current_chunk + " " + word if current_chunk else word
+            dummy_img = Image.new('RGBA', (1, 1))
+            dummy_draw = ImageDraw.Draw(dummy_img)
+            bbox = dummy_draw.textbbox((0, 0), test, font=font)
+            if bbox[2] - bbox[0] < video.w - 80:
+                current_chunk = test
+            else:
+                chunks.append(current_chunk)
+                current_chunk = word
+
+        if current_chunk:
+            chunks.append(current_chunk)
+
+        # Show each chunk for equal time
+        chunk_duration = duration / len(chunks) if chunks else duration
+
+        for j, chunk in enumerate(chunks):
+            chunk_start = start + j * chunk_duration
+            caption_array = make_caption_image(chunk, video.w)
+            clip = (ImageClip(caption_array)
+                    .set_start(chunk_start)
+                    .set_duration(chunk_duration)
+                    .set_position(('center', 'bottom')))
+            caption_clips.append(clip)
+
+    all_clips = [video] + caption_clips
+    final_video = CompositeVideoClip(all_clips, size=video.size)
     final_video = final_video.set_audio(video.audio)
 
-
-    # Save with audio preserved
     print(f"Saving captioned video to: {output_path}")
     final_video.write_videofile(
         output_path,
@@ -66,5 +135,5 @@ def add_captions_to_video(video_path: str, translated_ssml: str, output_path: st
     video.close()
     final_video.close()
 
-    print("Captions added successfully!")
+    print("Timed captions added successfully!")
     return output_path
