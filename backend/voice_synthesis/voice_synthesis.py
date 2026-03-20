@@ -15,16 +15,15 @@ app.add_middleware(CORSMiddleware, allow_origins=["*"], allow_methods=["*"], all
 
 client = Cartesia(api_key=os.getenv("CARTESIA_API_KEY"))
 
-# ✅ Always save relative to THIS file, not the working directory
 OUTPUT_DIR = os.path.join(os.path.dirname(os.path.abspath(__file__)), "outputs")
 os.makedirs(OUTPUT_DIR, exist_ok=True)
 
 TONE_VOICE_MAP = {
-    "urgent":     "256fd5ae-c666-4ce4-b356-03a53652e8be",  # Damon - Commanding Narrator
-    "calm":       "256fd5ae-c666-4ce4-b356-03a53652e8be",  # Diana - Gentle Mom
-    "inspiring":  "256fd5ae-c666-4ce4-b356-03a53652e8be",  # Mindy - Spirited Ally
-    "formal":     "256fd5ae-c666-4ce4-b356-03a53652e8be",  # Donny - Steady Presence
-    "empathetic": "256fd5ae-c666-4ce4-b356-03a53652e8be",  # Patricia - Veteran Support
+    "urgent":     "dbfa416f-d5c3-4006-854b-235ef6bdf4fd",  # Damon - Commanding Narrator
+    "calm":       "ea93f57f-7c71-4d79-aeaa-0a39b150f6ca",  # Diana - Gentle Mom
+    "inspiring":  "d6905573-8e91-4e32-b103-fd4d1205cd87",  # Mindy - Spirited Ally
+    "formal":     "d709a7e8-9495-4247-aef0-01b3207d11bf",  # Donny - Steady Presence
+    "empathetic": "e5a6cd18-d552-4192-9533-82a08cac8f23",  # Patricia - Veteran Support
 }
 
 TONE_SPEED_MAP = {
@@ -37,7 +36,6 @@ TONE_SPEED_MAP = {
 
 
 def strip_ssml(ssml_text: str) -> str:
-    """Strip SSML tags — Cartesia takes plain text, not SSML."""
     return re.sub(r'<[^>]+>', '', ssml_text).strip()
 
 
@@ -76,15 +74,13 @@ async def synthesize(request: VoiceRequest):
             output_format={
                 "container": "wav",
                 "sample_rate": 44100,
-                "encoding": "pcm_s16le",
+                "encoding": "pcm_f32le",
             },
         )
 
-        # ✅ Save to absolute path — works regardless of where uvicorn is launched from
         audio_path = os.path.join(OUTPUT_DIR, "output_audio.wav")
         with open(audio_path, "wb") as f:
-            for chunk in response.iter_bytes():
-                f.write(chunk)
+            f.write(response.read())
 
         print(f"[VOICE] Audio saved: {audio_path}")
 
