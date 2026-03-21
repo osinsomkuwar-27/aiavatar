@@ -2,13 +2,19 @@ import { Routes, Route, Navigate } from 'react-router-dom'
 import { useState, useCallback } from 'react'
 import Navbar from './components/Navbar'
 import Toast from './components/Toast'
-import CreatePage   from './pages/CreatePage'
-import FeaturesPage from './pages/FeaturesPage'
-import HistoryPage  from './pages/HistoryPage'
-import LoginPage    from './pages/LoginPage'
+import CreatePage     from './pages/CreatePage'
+import FeaturesPage   from './pages/FeaturesPage'
+import HistoryPage    from './pages/HistoryPage'
+import LoginPage      from './pages/LoginPage'
+import BackgroundPage from './pages/BackgroundPage'
 
 export default function App() {
   const [toasts, setToasts] = useState([])
+
+  // ── Shared background state across tabs ──
+  const [selectedBackground, setSelectedBackground] = useState(null)
+  // selectedBackground shape:
+  // { type: 'preset'|'color'|'upload', image: url|null, color: hex|null, label: string }
 
   const addToast = useCallback((message, type = 'info') => {
     const id = Date.now() + Math.random()
@@ -27,10 +33,22 @@ export default function App() {
         <Routes>
           <Route path="/"         element={<Navigate to="/create" replace />} />
           <Route path="/create"   element={<CreatePage   addToast={addToast} />} />
-          <Route path="/features" element={<FeaturesPage addToast={addToast} />} />
+          <Route path="/features" element={
+            <FeaturesPage
+              addToast={addToast}
+              selectedBackground={selectedBackground}
+            />}
+          />
           <Route path="/history"  element={<HistoryPage  addToast={addToast} />} />
           <Route path="/login"    element={<LoginPage    addToast={addToast} />} />
-          <Route path="*"         element={<Navigate to="/create" replace />} />
+          <Route path="/background" element={
+            <BackgroundPage
+              addToast={addToast}
+              selectedBackground={selectedBackground}
+              onBackgroundApply={setSelectedBackground}
+            />}
+          />
+          <Route path="*" element={<Navigate to="/create" replace />} />
         </Routes>
       </main>
       <Toast toasts={toasts} removeToast={removeToast} />

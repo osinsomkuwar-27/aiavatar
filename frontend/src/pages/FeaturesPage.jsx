@@ -1,4 +1,5 @@
 import { useState, useRef } from 'react'
+import { useNavigate } from 'react-router-dom'
 import { generateAvatar } from '../api'
 import CameraCapture from '../components/CameraCapture'
 
@@ -38,23 +39,65 @@ const STATS = [
 
 const ACCEPTED = ['image/jpeg', 'image/png', 'image/webp']
 
-export default function FeaturesPage({ addToast }) {
-  const [message,      setMessage]      = useState('')
-  const [language,     setLanguage]     = useState('Hindi')
-  const [tone,         setTone]         = useState('Professional')
-  const [isLoading,    setIsLoading]    = useState(false)
-  const [videoUrl,     setVideoUrl]     = useState(null)
-  const [isPlaying,    setIsPlaying]    = useState(false)
-  const [image,        setImage]        = useState(null)
-  const [imagePreview, setImagePreview] = useState(null)
-  const [genProgress,  setGenProgress]  = useState(0)
-  const [dragOver,     setDragOver]     = useState(false)
-  const [showCamera,   setShowCamera]   = useState(false)
+export default function FeaturesPage({ addToast, selectedBackground }) {
+  const navigate = useNavigate()
+
+  const [message,          setMessage]          = useState('')
+  const [language,         setLanguage]         = useState('English')
+  const [tone,             setTone]             = useState('Professional')
+  const [isLoading,        setIsLoading]        = useState(false)
+  const [videoUrl,         setVideoUrl]         = useState(null)
+  const [isPlaying,        setIsPlaying]        = useState(false)
+  const [image,            setImage]            = useState(null)
+  const [imagePreview,     setImagePreview]     = useState(null)
+  const [genProgress,      setGenProgress]      = useState(0)
+  const [dragOver,         setDragOver]         = useState(false)
+  const [showCamera,       setShowCamera]       = useState(false)
+  const [removingBg,       setRemovingBg]       = useState(false)
+  const [bgRemovedPreview, setBgRemovedPreview] = useState(null)
 
   const videoRef     = useRef(null)
   const fileInputRef = useRef(null)
 
-  const handleFile = (file) => {
+  function getBgStyle() {
+    if (!selectedBackground) return {}
+    const { type, image: bgImage, color, opacity = 100 } = selectedBackground
+    const base = { opacity: opacity / 100 }
+    if (type === 'color' && color) return { ...base, background: color }
+    if ((type === 'preset' || type === 'upload') && bgImage)
+      return { ...base, backgroundImage: `url(${bgImage})`, backgroundSize: 'cover', backgroundPosition: 'center' }
+    if (type === 'preset' && color) return { ...base, background: color }
+    return {}
+  }
+
+  const hasBg = !!selectedBackground
+
+  async function removeBackground(file) {
+    const apiKey = import.meta.env.VITE_REMOVEBG_API_KEY
+    if (!apiKey) {
+      addToast('VITE_REMOVEBG_API_KEY not set in frontend/.env', 'error')
+      return null
+    }
+    const formData = new FormData()
+    formData.append('image_file', file)
+    formData.append('size', 'auto')
+
+    const res = await fetch('https://api.remove.bg/v1.0/removebg', {
+      method: 'POST',
+      headers: { 'X-Api-Key': apiKey },
+      body: formData,
+    })
+
+    if (!res.ok) {
+      const err = await res.json().catch(() => ({}))
+      throw new Error(err?.errors?.[0]?.title || `Remove.bg error ${res.status}`)
+    }
+
+    const blob = await res.blob()
+    return new File([blob], 'portrait_nobg.png', { type: 'image/png' })
+  }
+
+  const handleFile = async (file) => {
     if (!file) return
     if (!ACCEPTED.includes(file.type)) {
       addToast('Please upload a JPG, PNG, or WebP image.', 'error'); return
@@ -62,10 +105,27 @@ export default function FeaturesPage({ addToast }) {
     if (file.size > 10 * 1024 * 1024) {
       addToast('Image must be under 10 MB.', 'error'); return
     }
+
     setImage(file)
+    setBgRemovedPreview(null)
     const reader = new FileReader()
     reader.onload = (e) => setImagePreview(e.target.result)
     reader.readAsDataURL(file)
+
+    setRemovingBg(true)
+    try {
+      const cleanFile = await removeBackground(file)
+      if (cleanFile) {
+        const cleanUrl = URL.createObjectURL(cleanFile)
+        setBgRemovedPreview(cleanUrl)
+        setImage(cleanFile)
+        addToast('Background removed! ✨', 'success')
+      }
+    } catch (err) {
+      addToast(`BG removal failed: ${err.message}`, 'error')
+    } finally {
+      setRemovingBg(false)
+    }
   }
 
   const handleGenerate = async () => {
@@ -85,7 +145,7 @@ export default function FeaturesPage({ addToast }) {
       const data = await generateAvatar(
         image, message,
         (pct) => setGenProgress(Math.round(pct * 20)),
-        LANGUAGE_MAP[language] || 'hi',
+        LANGUAGE_MAP[language] || 'en',
         TONE_MAP[tone] || null
       )
 
@@ -119,6 +179,8 @@ export default function FeaturesPage({ addToast }) {
     a.href = videoUrl; a.download = 'avatar.mp4'; a.click()
   }
 
+  const displayPreview = bgRemovedPreview || imagePreview
+
   return (
     <div style={s.page}>
       <style>{`
@@ -134,14 +196,9 @@ export default function FeaturesPage({ addToast }) {
         select:focus       { outline:none; border-color:rgba(79,142,255,0.5)!important; }
       `}</style>
 
-      {/* Camera modal */}
       {showCamera && (
         <CameraCapture
-          onCapture={(file) => {
-            handleFile(file)
-            setShowCamera(false)
-            addToast('Photo captured!', 'success')
-          }}
+          onCapture={(file) => { handleFile(file); setShowCamera(false); addToast('Photo captured!', 'success') }}
           onClose={() => setShowCamera(false)}
         />
       )}
@@ -160,17 +217,25 @@ export default function FeaturesPage({ addToast }) {
         ))}
       </div>
 
-      {/* Main grid */}
       <div style={s.mainGrid}>
 
         {/* Left: Video */}
         <div style={s.playerSection}>
+          {hasBg && (
+            <div style={{ display:'flex', alignItems:'center', gap:8, padding:'7px 14px', background:'rgba(201,240,62,0.06)', border:'0.5px solid rgba(201,240,62,0.2)', borderRadius:10, fontSize:11, color:'#c9f03e', fontWeight:600 }}>
+              <svg width="12" height="12" viewBox="0 0 24 24" fill="none" stroke="#c9f03e" strokeWidth="2.5" strokeLinecap="round"><polyline points="20 6 9 17 4 12"/></svg>
+              Background applied: <span style={{ color:'#ede8d8', fontWeight:400 }}>{selectedBackground.label}</span>
+            </div>
+          )}
+
           <div style={s.videoBox}>
+            {hasBg && <div style={{ position:'absolute', inset:0, zIndex:0, borderRadius:20, ...getBgStyle() }} />}
+
             {videoUrl ? (
               <>
-                <video ref={videoRef} src={videoUrl} style={s.video} onEnded={() => setIsPlaying(false)} playsInline autoPlay />
+                <video ref={videoRef} src={videoUrl} style={{ ...s.video, position:'relative', zIndex:1 }} onEnded={() => setIsPlaying(false)} playsInline autoPlay />
                 {!isPlaying && (
-                  <button style={s.playOverlay} onClick={togglePlay}>
+                  <button style={{ ...s.playOverlay, zIndex:2 }} onClick={togglePlay}>
                     <svg width="36" height="36" viewBox="0 0 36 36" fill="none">
                       <circle cx="18" cy="18" r="17" fill="rgba(0,0,0,0.55)" stroke="rgba(255,255,255,0.2)"/>
                       <path d="M15 11l11 7-11 7V11z" fill="white"/>
@@ -179,23 +244,40 @@ export default function FeaturesPage({ addToast }) {
                 )}
               </>
             ) : isLoading ? (
-              <div style={s.loadingBox}>
+              <div style={{ ...s.loadingBox, position:'relative', zIndex:1 }}>
                 <div style={s.loaderRing} />
                 <p style={s.loadingText}>Building your avatar video…</p>
                 <div style={s.progressTrack}><div style={{ ...s.progressFill, width:`${genProgress}%` }} /></div>
                 <p style={s.progressPct}>{Math.round(genProgress)}%</p>
               </div>
-            ) : imagePreview ? (
-              <img src={imagePreview} alt="Portrait preview" style={{ width:'100%', height:'100%', objectFit:'cover', objectPosition:'center top' }} />
+            ) : removingBg ? (
+              <div style={{ ...s.loadingBox, position:'relative', zIndex:1 }}>
+                <div style={s.loaderRing} />
+                <p style={s.loadingText}>Removing background…</p>
+                <p style={{ fontSize:11, color:'var(--text-muted)' }}>Powered by Remove.bg ✨</p>
+              </div>
+            ) : displayPreview ? (
+              <img
+                src={displayPreview}
+                alt="Portrait preview"
+                style={{
+                  width:'100%', height:'100%',
+                  objectFit:'contain', objectPosition:'center bottom',
+                  position:'relative', zIndex:1,
+                  background: bgRemovedPreview && !hasBg
+                    ? 'repeating-conic-gradient(#1a1a2e 0% 25%, #0d0d1a 0% 50%) 0 0 / 20px 20px'
+                    : 'transparent',
+                }}
+              />
             ) : (
-              <div style={s.emptyPlayer}>
+              <div style={{ ...s.emptyPlayer, position:'relative', zIndex:1 }}>
                 <svg width="56" height="56" viewBox="0 0 56 56" fill="none">
                   <rect x="4" y="4" width="48" height="48" rx="12" stroke="rgba(79,142,255,0.3)" strokeWidth="1.5" strokeDasharray="5 3"/>
                   <path d="M22 18l18 10-18 10V18z" fill="rgba(79,142,255,0.35)"/>
                 </svg>
                 <p style={s.emptyVideoLabel}>Video Player</p>
                 <p style={s.emptyVideoHint}>Generate a video to preview it here</p>
-                <div style={s.gridLines} />
+                {!hasBg && <div style={s.gridLines} />}
               </div>
             )}
           </div>
@@ -232,26 +314,41 @@ export default function FeaturesPage({ addToast }) {
         {/* Right: Controls */}
         <div style={s.controlsCard}>
 
-          {/* Portrait Photo */}
           <div style={s.fieldGroup}>
             <label style={s.fieldLabel}>Portrait Photo</label>
 
-            {imagePreview ? (
+            {displayPreview ? (
               <div style={s.photoPreview}>
-                <img src={imagePreview} alt="Portrait" style={s.photoImg} />
+                <div style={{ position:'relative', flexShrink:0 }}>
+                  <img src={displayPreview} alt="Portrait" style={{
+                    ...s.photoImg,
+                    background: bgRemovedPreview
+                      ? 'repeating-conic-gradient(#1a1a2e 0% 25%, #0d0d1a 0% 50%) 0 0 / 10px 10px'
+                      : 'transparent'
+                  }} />
+                  {removingBg && (
+                    <div style={{ position:'absolute', inset:0, background:'rgba(0,0,0,0.6)', borderRadius:8, display:'flex', alignItems:'center', justifyContent:'center' }}>
+                      <div style={{ width:14, height:14, borderRadius:'50%', border:'2px solid rgba(255,255,255,0.3)', borderTopColor:'#fff', animation:'spin360 0.7s linear infinite' }} />
+                    </div>
+                  )}
+                  {bgRemovedPreview && !removingBg && (
+                    <div style={{ position:'absolute', top:-4, right:-4, width:16, height:16, borderRadius:'50%', background:'#10d9a0', display:'flex', alignItems:'center', justifyContent:'center', fontSize:9 }}>✓</div>
+                  )}
+                </div>
                 <div style={s.photoMeta}>
-                  <span style={{ fontSize:11, color:'#10d9a0', fontWeight:600 }}>✓ Photo ready</span>
+                  <span style={{ fontSize:11, color: bgRemovedPreview ? '#10d9a0' : '#fbbf24', fontWeight:600 }}>
+                    {removingBg ? '⏳ Removing background…' : bgRemovedPreview ? '✓ Background removed!' : '✓ Photo ready'}
+                  </span>
                   <span style={{ fontSize:10, color:'var(--text-muted)', marginTop:2 }}>{image?.name}</span>
                   <div style={{ display:'flex', gap:6, marginTop:6 }}>
                     <button onClick={() => fileInputRef.current?.click()} style={s.miniBtn}>Upload</button>
                     <button onClick={() => setShowCamera(true)} style={{ ...s.miniBtn, borderColor:'rgba(79,142,255,0.4)', color:'#7aadff' }}>Retake</button>
-                    <button onClick={() => { setImage(null); setImagePreview(null) }} style={{ ...s.miniBtn, borderColor:'rgba(248,113,113,0.3)', color:'#f87171' }}>Remove</button>
+                    <button onClick={() => { setImage(null); setImagePreview(null); setBgRemovedPreview(null) }} style={{ ...s.miniBtn, borderColor:'rgba(248,113,113,0.3)', color:'#f87171' }}>Remove</button>
                   </div>
                 </div>
               </div>
             ) : (
               <>
-                {/* Upload / Take photo buttons */}
                 <div style={{ display:'flex', gap:8 }}>
                   <button className="photo-opt" style={s.photoOptBtn} onClick={() => fileInputRef.current?.click()}>
                     <svg width="14" height="14" viewBox="0 0 24 24" fill="none">
@@ -267,8 +364,6 @@ export default function FeaturesPage({ addToast }) {
                     Take photo
                   </button>
                 </div>
-
-                {/* Drop zone */}
                 <div
                   className="drop-zone"
                   style={{ ...s.dropzone, ...(dragOver ? { borderColor:'rgba(79,142,255,0.7)', background:'rgba(79,142,255,0.08)' } : {}) }}
@@ -284,13 +379,50 @@ export default function FeaturesPage({ addToast }) {
                   <p style={{ fontSize:12, color:'var(--text-muted)', margin:0 }}>
                     <strong style={{ color:'var(--text-secondary)' }}>Click or drag</strong> to upload portrait
                   </p>
-                  <p style={{ fontSize:10, color:'var(--text-muted)', margin:0 }}>JPG · PNG · WebP — max 10 MB</p>
+                  <p style={{ fontSize:10, color:'var(--text-muted)', margin:0 }}>JPG · PNG · WebP — max 10 MB · BG auto-removed ✨</p>
                 </div>
               </>
             )}
 
             <input ref={fileInputRef} type="file" accept="image/jpeg,image/png,image/webp" style={{ display:'none' }} onChange={(e) => handleFile(e.target.files?.[0])} />
           </div>
+
+          {/* Background banner — appears after photo upload */}
+          {displayPreview && (
+            <div style={{
+              display:'flex', alignItems:'center', justifyContent:'space-between',
+              padding:'10px 14px',
+              background: selectedBackground ? 'rgba(201,240,62,0.06)' : 'rgba(79,142,255,0.06)',
+              border: `0.5px solid ${selectedBackground ? 'rgba(201,240,62,0.25)' : 'rgba(79,142,255,0.2)'}`,
+              borderRadius:10, gap:10,
+            }}>
+              <div style={{ display:'flex', alignItems:'center', gap:8 }}>
+                <span style={{ fontSize:14 }}>🎨</span>
+                <div>
+                  <p style={{ fontSize:11, fontWeight:600, color: selectedBackground ? '#c9f03e' : '#7aadff', margin:0 }}>
+                    {selectedBackground ? `Background: ${selectedBackground.label}` : 'No background selected'}
+                  </p>
+                  <p style={{ fontSize:10, color:'var(--text-muted)', margin:0, marginTop:2 }}>
+                    {selectedBackground ? 'Looking good! You can change it anytime.' : 'Want to add a scene behind your avatar?'}
+                  </p>
+                </div>
+              </div>
+              <button
+                onClick={() => navigate('/background')}
+                style={{
+                  padding:'6px 12px', flexShrink:0,
+                  background: selectedBackground ? 'rgba(201,240,62,0.1)' : 'rgba(79,142,255,0.1)',
+                  border: `1px solid ${selectedBackground ? 'rgba(201,240,62,0.3)' : 'rgba(79,142,255,0.3)'}`,
+                  borderRadius:8, cursor:'pointer',
+                  fontSize:11, fontWeight:700,
+                  color: selectedBackground ? '#c9f03e' : '#7aadff',
+                  fontFamily:'var(--font-display)', letterSpacing:'0.04em', transition:'all 0.18s',
+                }}
+              >
+                {selectedBackground ? 'Change' : 'Choose Background'}
+              </button>
+            </div>
+          )}
 
           {/* Message */}
           <div style={s.fieldGroup}>
@@ -327,11 +459,21 @@ export default function FeaturesPage({ addToast }) {
           </div>
 
           {/* Generate */}
-          <button className="gen-btn" style={{ ...s.generateBtn, opacity:isLoading ? 0.7 : 1, cursor:isLoading ? 'not-allowed' : 'pointer' }} onClick={handleGenerate} disabled={isLoading}>
+          <button
+            className="gen-btn"
+            style={{ ...s.generateBtn, opacity:(isLoading || removingBg) ? 0.7 : 1, cursor:(isLoading || removingBg) ? 'not-allowed' : 'pointer' }}
+            onClick={handleGenerate}
+            disabled={isLoading || removingBg}
+          >
             {isLoading ? (
               <span style={{ display:'flex', alignItems:'center', gap:8 }}>
-                <span style={{ width:14,height:14,borderRadius:'50%',border:'2px solid rgba(255,255,255,0.3)',borderTopColor:'#fff',animation:'spin360 0.7s linear infinite',display:'inline-block' }} />
+                <span style={{ width:14, height:14, borderRadius:'50%', border:'2px solid rgba(255,255,255,0.3)', borderTopColor:'#fff', animation:'spin360 0.7s linear infinite', display:'inline-block' }} />
                 Generating Avatar Video…
+              </span>
+            ) : removingBg ? (
+              <span style={{ display:'flex', alignItems:'center', gap:8 }}>
+                <span style={{ width:14, height:14, borderRadius:'50%', border:'2px solid rgba(255,255,255,0.3)', borderTopColor:'#fff', animation:'spin360 0.7s linear infinite', display:'inline-block' }} />
+                Removing Background…
               </span>
             ) : (
               <>

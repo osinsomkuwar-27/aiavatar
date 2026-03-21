@@ -3,6 +3,7 @@ import { useState } from 'react'
 
 const NAV_LINKS = [
   { to: '/create', label: 'Create Avatar' },
+  { to: '/background', label: 'Background' },
   { to: '/features', label: 'Features' },
   { to: '/history', label: 'History' },
 ]
